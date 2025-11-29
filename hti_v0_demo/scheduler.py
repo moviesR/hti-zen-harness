@@ -48,7 +48,8 @@ class TimingStats:
 def run_episode(
     env: Optional[ToyEnv] = None,
     max_ticks: int = 2000,
-    verbose: bool = False
+    verbose: bool = False,
+    control_gain: float = 0.3
 ) -> dict:
     """Run one episode of the HTI demo.
 
@@ -56,6 +57,7 @@ def run_episode(
         env: Environment to use (creates default if None)
         max_ticks: Maximum ticks to run
         verbose: If True, print per-tick info
+        control_gain: Proportional gain for ControlBand (default 0.3)
 
     Returns:
         Summary dict with episode statistics
@@ -68,7 +70,7 @@ def run_episode(
     state = SharedState()
     bands = {
         "semantics": SemanticsBand(),
-        "control": ControlBand(),
+        "control": ControlBand(gain=control_gain),
         "reflex": ReflexBand(),
     }
     shield = SafetyShield()
