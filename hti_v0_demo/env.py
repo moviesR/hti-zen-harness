@@ -41,7 +41,15 @@ class ToyEnv:
 
         Returns:
             Initial observation dict with keys 'x' and 'x_target'
+
+        Raises:
+            ValueError: If x0 or x_target are outside valid range [0.0, 1.0]
         """
+        if not (0.0 <= x0 <= 1.0):
+            raise ValueError(f"x0 ({x0}) must be within [0.0, 1.0]")
+        if not (0.0 <= x_target <= 1.0):
+            raise ValueError(f"x_target ({x_target}) must be within [0.0, 1.0]")
+
         self.x = x0
         self.x_target = x_target
         self.step_count = 0

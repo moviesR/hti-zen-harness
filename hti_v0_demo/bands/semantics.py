@@ -22,6 +22,7 @@ class SemanticsBand:
         Args:
             state: Shared state (modified in-place)
         """
+        # TODO v0.2: Use direct dict access state.obs["x"] to fail fast on malformed obs
         x = state.obs.get("x", 0.0)
         x_target = state.obs.get("x_target", 0.0)
 

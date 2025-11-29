@@ -21,7 +21,12 @@ class SafetyShield:
         Args:
             u_min: Minimum allowed action
             u_max: Maximum allowed action
+
+        Raises:
+            ValueError: If u_min > u_max (invalid safety bounds)
         """
+        if u_min > u_max:
+            raise ValueError(f"u_min ({u_min}) must be <= u_max ({u_max})")
         self.u_min = u_min
         self.u_max = u_max
 

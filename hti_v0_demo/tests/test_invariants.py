@@ -184,6 +184,23 @@ def test_bounded_final_commands():
     print("✓ Test passed: Bounded final commands")
 
 
+def test_shield_rejects_invalid_bounds():
+    """Invariant: SafetyShield must enforce u_min <= u_max"""
+    # Valid bounds should work
+    shield = SafetyShield(u_min=-0.05, u_max=0.05)
+    assert shield.u_min == -0.05
+    assert shield.u_max == 0.05
+
+    # Invalid bounds should raise ValueError
+    try:
+        SafetyShield(u_min=0.1, u_max=-0.1)
+        assert False, "SafetyShield should reject u_min > u_max"
+    except ValueError as e:
+        assert "u_min" in str(e) and "u_max" in str(e), "Error message should mention bounds"
+
+    print("✓ Test passed: Shield rejects invalid bounds")
+
+
 def run_all_tests():
     """Run all invariant tests."""
     print("Running HTI v0.1 Invariant Tests\n")
@@ -196,6 +213,7 @@ def run_all_tests():
         test_shield_runs_last,
         test_causality_within_tick,
         test_bounded_final_commands,
+        test_shield_rejects_invalid_bounds,
     ]
 
     passed = 0

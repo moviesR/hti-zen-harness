@@ -38,6 +38,7 @@ class ReflexBand:
         action = state.action_proposed if state.action_proposed is not None else 0.0
 
         # Check proximity to boundaries
+        # TODO v0.2: Parameterize env bounds instead of hardcoding 0.0/1.0
         dist_to_lower = x - 0.0
         dist_to_upper = 1.0 - x
         distance_to_boundary = min(dist_to_lower, dist_to_upper)
