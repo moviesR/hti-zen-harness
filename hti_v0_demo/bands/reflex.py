@@ -43,7 +43,11 @@ class ReflexBand:
         """
         # v0.2: Use x_true for boundary checks (ground truth), fallback to x
         x_true = state.obs.get("x_true", state.obs.get("x", 0.0))
-        x_meas = state.obs.get("x_meas", state.obs.get("x", 0.0))
+
+        # v0.2.1: Use x_meas_raw (unclipped) for mismatch detection
+        # This prevents boundary clipping from masking large sensor faults
+        x_meas_raw = state.obs.get("x_meas_raw", state.obs.get("x_meas", state.obs.get("x", 0.0)))
+
         action = state.action_proposed if state.action_proposed is not None else 0.0
 
         # Check proximity to boundaries (using TRUE state)
@@ -57,8 +61,10 @@ class ReflexBand:
         # Check if action is too aggressive
         too_fast = abs(action) > self.speed_threshold
 
-        # v0.2: Sensor mismatch detection
-        mismatch_magnitude = abs(x_true - x_meas)
+        # v0.2.1: Sensor mismatch detection using UNCLIPPED measurement
+        # Comparing x_true vs x_meas_raw ensures large glitches are detected
+        # even when they would be clipped by environment bounds
+        mismatch_magnitude = abs(x_true - x_meas_raw)
         sensor_mismatch = mismatch_magnitude > self.mismatch_threshold
 
         # REPLACE flags (stateless - Zen MCP #2)

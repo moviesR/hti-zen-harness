@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1] - 2025-11-29
+
+### Fixed - CRITICAL Safety Bug
+
+#### Boundary Clipping Bug (Found by Multi-Model Consensus)
+- **Severity**: CRITICAL - Safety system bypass near boundaries
+- **Found By**: GPT-5.1-Codex via Zen MCP consensus review
+- **File**: `env.py:107-108` (v0.2.0)
+
+**Problem**:
+Environment clipped `x_meas` to `[0.0, 1.0]` BEFORE ReflexBand performed mismatch detection, causing large sensor glitches to become invisible when `x_true` was near boundaries.
+
+**Example**:
+```
+x_true = 0.95 (near upper bound)
+x_meas_raw = 1.25 (0.95 + 0.3 glitch)
+x_meas_clipped = 1.0 (clipped before Reflex)
+mismatch = |0.95 - 1.0| = 0.05 ← Threshold, might not trip!
+```
+
+**Impact**:
+- Mismatch detection failed precisely where safety margins were tightest
+- Violated ISO 26262 best practice (plausibility checks BEFORE conditioning)
+- Created false sense of security near boundaries
+
+**Fix** (`env.py`, `reflex.py`):
+- Added `x_meas_raw` (unclipped measurement) to observation dict
+- ReflexBand now uses `x_meas_raw` for mismatch detection
+- ControlBand still uses `x_meas` (clipped, for stability)
+- Follows ISO 26262: Compare raw sensors BEFORE conditioning
+
+#### New Test
+- **test_boundary_glitch_detection()** (`test_invariants.py:314`)
+  - Invariant #12: Glitches detected even near boundaries
+  - Tests upper boundary (x_true=0.95) and lower boundary (x_true=0.05)
+  - Verifies mismatch detection with clipping present
+  - Total tests: 11 → 12 (all passing)
+
+### Changed
+- **env.py**: Observation dict now includes `x_meas_raw` (unclipped)
+- **reflex.py**: Mismatch detection uses `x_meas_raw` instead of `x_meas`
+
+### Validated
+- ✅ All 12 invariant tests passing (8 + 3 + 1)
+- ✅ Backward compatibility preserved (fallback chain: x_meas_raw → x_meas → x)
+- ✅ All v0.2.0 tests still pass
+- ✅ Boundary edge cases now covered
+
+### Multi-Model Consensus Review
+
+**Gemini-2.5-Pro (Initial)**:
+- Verdict: Production-ready (9/10)
+- Focus: Architecture, design patterns
+- Missed: Boundary clipping edge case
+
+**GPT-5.1-Codex (Consensus)**:
+- Verdict: NOT production-ready (7/10) - **Critical bug found**
+- Focus: Data flow, edge cases, ISO 26262 compliance
+- Found: Boundary clipping masks sensor faults
+
+**Outcome**: GPT-5.1-Codex was correct - critical fix implemented
+
+### Lessons Learned
+1. Multi-model consensus is essential for safety-critical systems
+2. Data flow analysis is critical (architectural correctness ≠ data correctness)
+3. Test boundary conditions - edge cases reveal critical bugs
+4. Follow safety standards (ISO 26262 principles)
+5. Different models have complementary strengths
+
+---
+
 ## [0.2.0] - 2025-11-29
 
 ### Added - Sensor Contradiction Demo
@@ -302,6 +373,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Version History
 
+- **v0.2.1** (2025-11-29): CRITICAL boundary clipping fix + multi-model consensus
 - **v0.2.0** (2025-11-29): Sensor contradiction demo + Zen MCP refinements
 - **v0.1.1** (2025-11-29): Contract hardening + educational comparison
 - **v0.1.0** (2025-11-29): Initial implementation

@@ -738,3 +738,156 @@ Total tests: 11 (8 from v0.1.1 + 3 new from v0.2)
 All v0.1.1 tests pass with `enable_glitches=False`, ensuring backward compatibility.
 
 ---
+
+## 9. v0.2.1 - Critical Boundary Clipping Fix
+
+**Release Date**: 2025-11-29
+**Found By**: Multi-model consensus (GPT-5.1-Codex via Zen MCP)
+**Severity**: CRITICAL - Safety system bypass near boundaries
+
+### 9.1 Bug Description
+
+**Critical Issue**: In v0.2.0, the environment clipped `x_meas` to `[0.0, 1.0]` BEFORE ReflexBand performed mismatch detection. This caused large sensor glitches to become invisible when `x_true` was near the environment boundaries.
+
+**Example of Bug**:
+```python
+# Near upper boundary (x_true = 0.95)
+x_true = 0.95
+x_meas_raw = 0.95 + 0.3 = 1.25  # Large glitch
+x_meas_clipped = 1.0            # Clipped before Reflex sees it
+mismatch = |0.95 - 1.0| = 0.05  # Exactly at threshold, might not trip!
+```
+
+**Safety Impact**:
+- Sensor mismatch detection **failed precisely where safety margins were tightest**
+- Violated ISO 26262 best practice (plausibility checks BEFORE conditioning)
+- Created false sense of security near boundaries
+- Would have required emergency patches if discovered in production
+
+### 9.2 Root Cause Analysis
+
+**File**: `env.py:107-108` (v0.2.0)
+
+**Problematic Code**:
+```python
+x_meas = self.x + self.glitch_magnitude
+x_meas = max(0.0, min(1.0, x_meas))  # ← Clipping BEFORE Reflex sees it
+```
+
+**Data Flow Problem**:
+```
+Environment → clip x_meas → ReflexBand → compare to x_true
+                    ↑
+               Bug location: Clipping masks large faults near boundaries
+```
+
+**Why Gemini-2.5-Pro Missed It**:
+- Focused on architectural correctness (which WAS correct)
+- Didn't trace data flow through clipping operation
+- Didn't consider boundary edge cases in sensor simulation
+
+**Why GPT-5.1-Codex Found It**:
+- Examined data flow from environment through ReflexBand
+- Considered edge cases near boundaries
+- Applied ISO 26262 safety principles (raw sensor comparison)
+
+### 9.3 Fix Implementation
+
+**Solution**: Store BOTH unclipped (raw) and clipped measurements
+
+**Changes**:
+
+1. **env.py** - Dual measurement tracking:
+```python
+# v0.2.1: Keep BOTH raw (unclipped) and clipped measurements
+x_meas_raw = self.x  # Unclipped
+if self.enable_glitches:
+    x_meas_raw = self.x + self.glitch_magnitude  # UNCLIPPED
+
+# Clipped for downstream consumers (ControlBand)
+x_meas = max(0.0, min(1.0, x_meas_raw))
+
+obs = {
+    "x_meas": x_meas,         # Clipped for control
+    "x_meas_raw": x_meas_raw  # Unclipped for safety checks
+}
+```
+
+2. **reflex.py** - Use unclipped for mismatch detection:
+```python
+# v0.2.1: Use x_meas_raw (unclipped) for mismatch detection
+x_meas_raw = state.obs.get("x_meas_raw",
+                           state.obs.get("x_meas",
+                                        state.obs.get("x", 0.0)))
+
+# Compare x_true vs x_meas_raw (before clipping)
+mismatch_magnitude = abs(x_true - x_meas_raw)
+sensor_mismatch = mismatch_magnitude > self.mismatch_threshold
+```
+
+**Rationale**:
+- ControlBand uses `x_meas` (clipped, bounded for stability)
+- ReflexBand uses `x_meas_raw` (unclipped, for safety detection)
+- Follows ISO 26262: Plausibility checks on raw sensors BEFORE conditioning
+
+### 9.4 New Invariant (v0.2.1)
+
+**Invariant #12: Boundary glitch detection**
+- Large glitches are detected even when `x_true` is near boundaries (0.0 or 1.0)
+- Mismatch detection uses unclipped `x_meas_raw`
+- Tests both upper boundary (x_true=0.95) and lower boundary (x_true=0.05) cases
+- Test: `test_boundary_glitch_detection()`
+
+**Test Coverage**:
+```python
+# Upper boundary test
+x_true = 0.95, x_meas_raw = 1.25, x_meas = 1.0 (clipped)
+mismatch = |0.95 - 1.25| = 0.3  # Detected! (was 0.05 in v0.2.0)
+
+# Lower boundary test
+x_true = 0.05, x_meas_raw = -0.05, x_meas = 0.0 (clipped)
+mismatch = |0.05 - (-0.05)| = 0.1  # Detected! (was 0.05 in v0.2.0)
+```
+
+### 9.5 Backward Compatibility
+
+**Fully Preserved**:
+- Fallback chain: `x_meas_raw` → `x_meas` → `x` ensures v0.1.1 compatibility
+- All 11 v0.2.0 tests still pass
+- ControlBand still uses `x_meas` (clipped, as before)
+- `enable_glitches=False` behavior unchanged
+
+### 9.6 Test Results
+
+**All 12 tests passing**:
+- 8 from v0.1.1 ✅
+- 3 from v0.2.0 ✅
+- 1 from v0.2.1 (boundary fix) ✅
+
+**Regression Testing**: No failures in existing tests.
+
+### 9.7 Consensus Review Findings
+
+**Gemini-2.5-Pro (Initial Review)**:
+- Verdict: Production-ready (9/10)
+- Focus: Architecture, design patterns
+- Missed: Boundary clipping edge case
+
+**GPT-5.1-Codex (Consensus Review)**:
+- Verdict: NOT production-ready (7/10) - Critical bug found
+- Focus: Data flow, edge cases, ISO 26262 compliance
+- Found: Boundary clipping masks sensor faults
+
+**Consensus Outcome**: GPT-5.1-Codex was correct - critical safety bug requiring immediate fix.
+
+### 9.8 Lessons Learned
+
+1. **Multi-model consensus is essential** - Different models have different strengths
+2. **Data flow analysis is critical** - Architectural correctness ≠ data correctness
+3. **Test boundary conditions** - Edge cases often reveal critical bugs
+4. **Follow safety standards** - ISO 26262 principles caught the issue
+5. **Code review isn't sufficient** - Need diverse perspectives and edge case analysis
+
+**Recommendation**: For safety-critical systems, always use multi-model consensus reviews with models that have different analytical strengths.
+
+---

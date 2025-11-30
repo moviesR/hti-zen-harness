@@ -73,11 +73,12 @@ class ToyEnv:
         self.step_count = 0
         self.current_tick = 0  # v0.2: Reset tick counter
 
-        # v0.2: Return x_true and x_meas (initially identical)
+        # v0.2.1: Return x_true, x_meas, and x_meas_raw (all initially identical)
         return {
-            "x": self.x,          # Backward compatibility
-            "x_true": self.x,     # v0.2: Ground truth
-            "x_meas": self.x,     # v0.2: Measured (initially accurate)
+            "x": self.x,              # Backward compatibility
+            "x_true": self.x,         # v0.2: Ground truth
+            "x_meas": self.x,         # v0.2: Measured (initially accurate, clipped)
+            "x_meas_raw": self.x,     # v0.2.1: Unclipped measurement (initially accurate)
             "x_target": self.x_target
         }
 
@@ -99,19 +100,22 @@ class ToyEnv:
         self.current_tick += 1  # v0.2: Increment tick counter
 
         # v0.2: Compute measured state with optional glitch
-        x_meas = self.x  # Default: measurement matches reality
+        # v0.2.1: Keep BOTH raw (unclipped) and clipped measurements
+        x_meas_raw = self.x  # Default: measurement matches reality (unclipped)
         if self.enable_glitches:
             if self.glitch_start_tick <= self.current_tick < self.glitch_end_tick:
-                # Deterministic glitch: add fixed offset
-                x_meas = self.x + self.glitch_magnitude
-                # Keep x_meas in bounds for realism
-                x_meas = max(0.0, min(1.0, x_meas))
+                # Deterministic glitch: add fixed offset (UNCLIPPED)
+                x_meas_raw = self.x + self.glitch_magnitude
 
-        # Observation (v0.2: includes x_true and x_meas)
+        # Clipped measurement for downstream consumers (ControlBand)
+        x_meas = max(0.0, min(1.0, x_meas_raw))
+
+        # Observation (v0.2.1: includes x_true, x_meas, and x_meas_raw)
         obs = {
-            "x": self.x,          # Backward compatibility (uses true state)
-            "x_true": self.x,     # v0.2: Ground truth
-            "x_meas": x_meas,     # v0.2: Measured (potentially corrupted)
+            "x": self.x,              # Backward compatibility (uses true state)
+            "x_true": self.x,         # v0.2: Ground truth
+            "x_meas": x_meas,         # v0.2: Measured (potentially corrupted, clipped)
+            "x_meas_raw": x_meas_raw, # v0.2.1: Unclipped measurement for safety checks
             "x_target": self.x_target
         }
 

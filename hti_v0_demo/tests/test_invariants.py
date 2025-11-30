@@ -204,7 +204,7 @@ def test_shield_rejects_invalid_bounds():
 def test_sensor_mismatch_triggers_stop():
     """Invariant #9 (v0.2): Sensor mismatch → action_final=0.0"""
     state = SharedState(
-        obs={"x": 0.5, "x_true": 0.5, "x_meas": 0.8, "x_target": 0.9},
+        obs={"x": 0.5, "x_true": 0.5, "x_meas": 0.8, "x_meas_raw": 0.8, "x_target": 0.9},
         tick=55,
         t=0.55
     )
@@ -282,7 +282,7 @@ def test_recovery_after_glitch_window():
 def test_no_op_event_generation():
     """Invariant #11 (v0.2): EventPack even if action_proposed==0.0"""
     state = SharedState(
-        obs={"x": 0.5, "x_true": 0.5, "x_meas": 0.8, "x_target": 0.9},
+        obs={"x": 0.5, "x_true": 0.5, "x_meas": 0.8, "x_meas_raw": 0.8, "x_target": 0.9},
         tick=60,
         t=0.60
     )
@@ -311,9 +311,70 @@ def test_no_op_event_generation():
     print("✓ Test passed: No-op event generation")
 
 
+def test_boundary_glitch_detection():
+    """Invariant #12 (v0.2.1): Glitches detected even near boundaries (critical bug fix)
+
+    This test addresses the critical bug found by GPT-5.1-Codex where clipping
+    x_meas before mismatch detection caused large glitches to be invisible when
+    x_true was near the environment boundaries.
+
+    The fix: Use x_meas_raw (unclipped) for mismatch detection in ReflexBand.
+    """
+    # Test near UPPER boundary (where original bug manifested)
+    state = SharedState(
+        obs={
+            "x": 0.95,           # Very close to upper bound (1.0)
+            "x_true": 0.95,
+            "x_meas": 1.0,       # Clipped (0.95 + 0.3 = 1.25 → clipped to 1.0)
+            "x_meas_raw": 1.25,  # Unclipped (raw sensor reading)
+            "x_target": 0.8
+        },
+        tick=10,
+        t=0.10
+    )
+
+    # Reflex should detect mismatch using x_meas_raw
+    reflex = ReflexBand(mismatch_threshold=0.05)
+    reflex.step(state)
+
+    # CRITICAL: Mismatch MUST be detected despite clipping
+    assert state.reflex_flags.sensor_mismatch is True, \
+        "Mismatch must be detected near upper boundary"
+    assert state.reflex_flags.mismatch_magnitude > 0.25, \
+        f"Mismatch magnitude should be ~0.3, got {state.reflex_flags.mismatch_magnitude}"
+
+    # Shield MUST stop
+    shield = SafetyShield()
+    safe_u, event = shield.apply(state)
+    assert safe_u == 0.0, "Shield must stop on boundary glitch"
+    assert event is not None, "Event must be generated"
+    assert event.reason == "stop_sensor_mismatch", "Correct stop reason"
+
+    # Test near LOWER boundary
+    state_lower = SharedState(
+        obs={
+            "x": 0.05,           # Very close to lower bound (0.0)
+            "x_true": 0.05,
+            "x_meas": 0.0,       # Clipped (0.05 - 0.1 = -0.05 → clipped to 0.0)
+            "x_meas_raw": -0.05, # Unclipped (negative sensor reading)
+            "x_target": 0.2
+        },
+        tick=15,
+        t=0.15
+    )
+
+    reflex.step(state_lower)
+    assert state_lower.reflex_flags.sensor_mismatch is True, \
+        "Mismatch must be detected near lower boundary"
+    assert state_lower.reflex_flags.mismatch_magnitude > 0.05, \
+        f"Mismatch magnitude should be ~0.1, got {state_lower.reflex_flags.mismatch_magnitude}"
+
+    print("✓ Test passed: Boundary glitch detection (v0.2.1 critical fix)")
+
+
 def run_all_tests():
     """Run all invariant tests."""
-    print("Running HTI v0.1.1 + v0.2 Invariant Tests\n")
+    print("Running HTI v0.1.1 + v0.2 + v0.2.1 Invariant Tests\n")
 
     tests = [
         # v0.1.1 tests (must still pass)
@@ -329,6 +390,8 @@ def run_all_tests():
         test_sensor_mismatch_triggers_stop,
         test_recovery_after_glitch_window,
         test_no_op_event_generation,
+        # v0.2.1 tests (critical bug fix)
+        test_boundary_glitch_detection,
     ]
 
     passed = 0
