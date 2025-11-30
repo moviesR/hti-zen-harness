@@ -201,11 +201,122 @@ def test_shield_rejects_invalid_bounds():
     print("✓ Test passed: Shield rejects invalid bounds")
 
 
+def test_sensor_mismatch_triggers_stop():
+    """Invariant #9 (v0.2): Sensor mismatch → action_final=0.0"""
+    state = SharedState(
+        obs={"x": 0.5, "x_true": 0.5, "x_meas": 0.8, "x_target": 0.9},
+        tick=55,
+        t=0.55
+    )
+
+    # Control proposes action based on corrupted measurement
+    ctrl = ControlBand()
+    ctrl.step(state)
+    proposed = state.action_proposed
+
+    # Reflex detects mismatch
+    reflex = ReflexBand(mismatch_threshold=0.05)
+    reflex.step(state)
+
+    assert state.reflex_flags.sensor_mismatch is True, "Reflex should detect mismatch"
+    assert state.reflex_flags.mismatch_magnitude > 0.05, "Mismatch magnitude should exceed threshold"
+
+    # Shield STOPS (action_final = 0.0)
+    shield = SafetyShield()
+    safe_u, event = shield.apply(state)
+
+    assert safe_u == 0.0, "Shield must stop on sensor mismatch"
+    assert state.action_final == 0.0, "action_final must be 0.0"
+    assert event is not None, "EventPack must be generated"
+    assert event.reason == "stop_sensor_mismatch", f"Wrong reason: {event.reason}"
+    assert event.action_final == 0.0, "Event must record action_final=0.0"
+
+    print("✓ Test passed: Sensor mismatch triggers stop")
+
+
+def test_recovery_after_glitch_window():
+    """Invariant #10 (v0.2): Automatic recovery (stateless flags)"""
+    env = ToyEnv(enable_glitches=True, glitch_start_tick=50, glitch_end_tick=70, glitch_magnitude=0.3)
+    reflex = ReflexBand(mismatch_threshold=0.05)
+    shield = SafetyShield()
+    state = SharedState()
+
+    obs = env.reset(x0=0.5, x_target=0.8)
+
+    # BEFORE glitch (tick 49)
+    for _ in range(49):
+        obs, _, _, _ = env.step(0.0)
+    state.obs = obs
+    state.tick = 49
+    state.action_proposed = 0.03
+    reflex.step(state)
+    assert state.reflex_flags.sensor_mismatch is False, "No mismatch before glitch"
+
+    # DURING glitch (tick 55)
+    for _ in range(6):
+        obs, _, _, _ = env.step(0.0)
+    state.obs = obs
+    state.tick = 55
+    state.action_proposed = 0.03
+    reflex.step(state)
+    assert state.reflex_flags.sensor_mismatch is True, "Mismatch during glitch"
+    safe_u, event = shield.apply(state)
+    assert safe_u == 0.0, "Shield stops during glitch"
+    assert event.reason == "stop_sensor_mismatch", "Correct reason during glitch"
+
+    # AFTER glitch (tick 71)
+    for _ in range(16):
+        obs, _, _, _ = env.step(0.0)
+    state.obs = obs
+    state.tick = 71
+    state.action_proposed = 0.03
+    reflex.step(state)
+    assert state.reflex_flags.sensor_mismatch is False, "Mismatch clears after glitch"
+    safe_u, event = shield.apply(state)
+    assert safe_u == 0.03, "Shield resumes normal operation after glitch"
+    assert event is None or event.reason != "stop_sensor_mismatch", "No stop after recovery"
+
+    print("✓ Test passed: Recovery after glitch window")
+
+
+def test_no_op_event_generation():
+    """Invariant #11 (v0.2): EventPack even if action_proposed==0.0"""
+    state = SharedState(
+        obs={"x": 0.5, "x_true": 0.5, "x_meas": 0.8, "x_target": 0.9},
+        tick=60,
+        t=0.60
+    )
+
+    # Control proposes zero action
+    state.action_proposed = 0.0
+
+    # Reflex detects mismatch
+    reflex = ReflexBand(mismatch_threshold=0.05)
+    reflex.step(state)
+    assert state.reflex_flags.sensor_mismatch is True
+
+    # Shield stops (action_final = 0.0, same as proposed)
+    shield = SafetyShield()
+    safe_u, event = shield.apply(state)
+
+    assert safe_u == 0.0, "action_final is 0.0"
+    assert state.action_final == 0.0
+
+    # CRITICAL: Event MUST be generated (Zen MCP recommendation #5)
+    assert event is not None, "EventPack must be generated even for no-op"
+    assert event.reason == "stop_sensor_mismatch", "Correct reason"
+    assert event.action_proposed == 0.0, "Event records proposed=0.0"
+    assert event.action_final == 0.0, "Event records final=0.0"
+
+    print("✓ Test passed: No-op event generation")
+
+
 def run_all_tests():
     """Run all invariant tests."""
-    print("Running HTI v0.1 Invariant Tests\n")
+    print("Running HTI v0.1.1 + v0.2 Invariant Tests\n")
 
     tests = [
+        # v0.1.1 tests (must still pass)
         test_semantics_advisory_only,
         test_shield_bounds_actions,
         test_event_pack_on_clipping,
@@ -214,6 +325,10 @@ def run_all_tests():
         test_causality_within_tick,
         test_bounded_final_commands,
         test_shield_rejects_invalid_bounds,
+        # v0.2 tests (new)
+        test_sensor_mismatch_triggers_stop,
+        test_recovery_after_glitch_window,
+        test_no_op_event_generation,
     ]
 
     passed = 0

@@ -592,3 +592,149 @@ Not for implementation now, just for future:
 * Introduce a simple learning loop that uses EventPacks as training data.
 
 v0.1 is done as soon as the scheduler, bands, Shield, event logging, and tests exist and pass.
+
+---
+
+## 8. v0.2 - Sensor Contradiction Extension
+
+### 8.1 Motivation
+
+v0.1 demonstrated the minimal HTI pattern with a single contradiction source:
+> "What Control wanted vs what the safety envelope allows."
+
+v0.2 extends this to include **sensor contradictions**:
+> "What sensors report vs what the true state is."
+
+This demonstrates HTI's value in handling multi-modal information conflicts, a common scenario in robotics (vision vs tactile, encoder vs IMU, GPS vs odometry, etc.).
+
+### 8.2 Environment Features
+
+ToyEnv gains optional sensor glitch simulation:
+
+```python
+env = ToyEnv(
+    enable_glitches=True,
+    glitch_start_tick=5,
+    glitch_end_tick=25,
+    glitch_magnitude=0.3
+)
+```
+
+**Behavior**:
+- `x_true`: Ground truth position (always accurate)
+- `x_meas`: Measured position (corrupted during glitch window)
+- During glitch: `x_meas = clip(x_true + glitch_magnitude, 0.0, 1.0)`
+- Outside glitch: `x_meas = x_true`
+
+**Backward Compatibility**:
+- `enable_glitches=False` (default): `x = x_true = x_meas` (v0.1.1 behavior)
+- obs dict contains `x`, `x_true`, and `x_meas` for compatibility
+
+### 8.3 Band Updates
+
+**ControlBand** (intentionally naive):
+- Uses `x_meas` for control decisions
+- During glitch, makes decisions based on corrupted measurement
+- Demonstrates vulnerability to sensor faults
+- Fallback to `obs["x"]` for v0.1.1 compatibility
+
+**ReflexBand** (mismatch detection):
+- Compares `x_true` vs `x_meas`
+- Sets `sensor_mismatch=True` when `|x_true - x_meas| > threshold` (default 0.05)
+- Uses `x_true` for boundary checks (ground truth)
+- Fallback to `obs["x"]` for v0.1.1 compatibility
+
+**SafetyShield** (trust and verify):
+- Trusts ReflexBand's `sensor_mismatch` flag (no re-checking per Zen MCP #1)
+- **Precedence hierarchy**:
+  1. Sensor mismatch → STOP (action_final=0.0)
+  2. Out of bounds → CLIP
+  3. Near boundary → CONSERVATIVE CLIP
+- Generates EventPack even for no-op stops (per Zen MCP #5)
+
+### 8.4 New ReflexFlags Fields
+
+```python
+@dataclass
+class ReflexFlags:
+    near_boundary: bool = False
+    too_fast: bool = False
+    distance_to_boundary: float = 0.0
+    sensor_mismatch: bool = False      # v0.2
+    mismatch_magnitude: float = 0.0    # v0.2
+```
+
+**STATELESS** (Zen MCP #2): Flags are reset/recomputed every tick. Previous flags discarded.
+
+**RECOVERY** (Zen MCP #3): When mismatch clears, sensor_mismatch automatically becomes False.
+
+### 8.5 New EventPack Reason
+
+v0.2 adds one new intervention reason:
+- `"stop_sensor_mismatch"`: Shield stopped system due to sensor contradiction
+
+Metadata now includes:
+- `sensor_mismatch: bool`
+- `mismatch_magnitude: float`
+
+### 8.6 New Invariants (v0.2)
+
+**Invariant #9: Sensor mismatch triggers stop**
+- When `reflex_flags.sensor_mismatch=True`, Shield sets `action_final=0.0`
+- EventPack generated with reason `"stop_sensor_mismatch"`
+- Test: `test_sensor_mismatch_triggers_stop()`
+
+**Invariant #10: Automatic recovery**
+- ReflexFlags are stateless: when glitch clears, mismatch flag clears
+- Shield resumes normal operation automatically
+- No manual reset required
+- Test: `test_recovery_after_glitch_window()`
+
+**Invariant #11: No-op event generation**
+- EventPack generated even if `action_proposed` was already `0.0`
+- Ensures all sensor mismatch stops are logged
+- Test: `test_no_op_event_generation()`
+
+### 8.7 Demonstration Scenarios
+
+```bash
+# Clean sensors (v0.1.1 behavior)
+python -m hti_v0_demo.run_demo --scenario clean
+
+# Sensor glitch (v0.2 demonstration)
+python -m hti_v0_demo.run_demo --scenario sensor_glitch
+
+# Both scenarios with comparison (default)
+python -m hti_v0_demo.run_demo --scenario both
+```
+
+**Expected Behavior**:
+- Clean: ~12 interventions (clip_out_of_bounds, clip_near_boundary)
+- Glitch: ~31 interventions (11 clipping + 20 stop_sensor_mismatch)
+- Difference: +19 interventions during glitch window
+- Automatic recovery at tick 25
+
+### 8.8 Design Decisions (Zen MCP Refinements)
+
+1. **Trust ReflexBand** (Zen MCP #1): Shield doesn't re-compute mismatch threshold
+   - Rationale: Avoid duplicated logic, single source of truth
+
+2. **Stateless Flags** (Zen MCP #2): ReflexFlags don't carry state between ticks
+   - Rationale: Simplifies reasoning, automatic recovery
+
+3. **Explicit Recovery Documentation** (Zen MCP #3): Recovery is automatic, not manual
+   - Rationale: Prevents confusion about reset mechanisms
+
+4. **Precedence Clarity** (Zen MCP #4): Sensor mismatch stop > clipping
+   - Rationale: Sensor faults are more critical than control aggressiveness
+
+5. **No-op Event Logging** (Zen MCP #5): Generate EventPack even for 0.0 → 0.0
+   - Rationale: Audit trail for all safety decisions, not just action changes
+
+### 8.9 Test Coverage
+
+Total tests: 11 (8 from v0.1.1 + 3 new from v0.2)
+
+All v0.1.1 tests pass with `enable_glitches=False`, ensuring backward compatibility.
+
+---

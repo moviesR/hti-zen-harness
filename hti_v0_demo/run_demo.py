@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hti_v0_demo.scheduler import run_episode
+from hti_v0_demo.env import ToyEnv
 
 
 def print_summary(label: str, summary: dict, gain: float) -> None:
@@ -35,15 +36,22 @@ def print_summary(label: str, summary: dict, gain: float) -> None:
 
 
 def main():
-    """Run the HTI v0.1 demonstration."""
+    """Run the HTI v0.1/v0.2 demonstration."""
     parser = argparse.ArgumentParser(
-        description="HTI v0.1 - Hierarchical Temporal Intelligence Demo"
+        description="HTI v0.2 - Hierarchical Temporal Intelligence Demo (Sensor Contradiction)"
     )
     parser.add_argument(
         "--gain",
         type=float,
         default=None,
-        help="Control gain (default: run both 0.3 and 1.0 for comparison)"
+        help="Control gain (default: 0.3)"
+    )
+    parser.add_argument(
+        "--scenario",
+        type=str,
+        choices=["clean", "sensor_glitch", "both"],
+        default="both",
+        help="Scenario: clean (v0.1.1), sensor_glitch (v0.2), or both (default)"
     )
     parser.add_argument(
         "--verbose",
@@ -53,46 +61,59 @@ def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print("HTI v0.1 - Minimal Demo Harness")
+    print("HTI v0.2 - Sensor Contradiction Demo")
     print("=" * 60)
     print()
 
-    if args.gain is not None:
-        # Single run with custom gain
-        print(f"Running single scenario with gain={args.gain}")
-        summary = run_episode(verbose=args.verbose, control_gain=args.gain)
-        print_summary("Custom Scenario", summary, args.gain)
-    else:
-        # Educational comparison: conservative vs aggressive
-        print("Running comparative demonstration:")
-        print("  1. Conservative control (gain=0.3)")
-        print("  2. Aggressive control (gain=1.0)")
-        print("\nThis shows how the SafetyShield responds to different control policies.")
+    gain = args.gain or 0.3
+
+    if args.scenario in ["clean", "both"]:
+        print("\n" + ">" * 60)
+        print("SCENARIO 1: Clean Sensors (v0.1.1 behavior)")
+        print(">" * 60)
+        print("No sensor glitches. Control uses accurate measurements.")
         print()
 
-        # Conservative run
-        print("\n" + ">" * 60)
-        print("SCENARIO 1: Conservative Control")
-        print(">" * 60)
-        summary_conservative = run_episode(verbose=args.verbose, control_gain=0.3)
-        print_summary("Conservative Control", summary_conservative, 0.3)
+        env_clean = ToyEnv(enable_glitches=False)
+        summary_clean = run_episode(
+            env=env_clean,
+            verbose=args.verbose,
+            control_gain=gain
+        )
+        print_summary("Clean Sensors", summary_clean, gain)
 
-        # Aggressive run
+    if args.scenario in ["sensor_glitch", "both"]:
         print("\n" + ">" * 60)
-        print("SCENARIO 2: Aggressive Control")
+        print("SCENARIO 2: Sensor Glitch (v0.2 demonstration)")
         print(">" * 60)
-        summary_aggressive = run_episode(verbose=args.verbose, control_gain=1.0)
-        print_summary("Aggressive Control", summary_aggressive, 1.0)
+        print("Sensor glitch from tick 5-25: x_meas = x_true + 0.3")
+        print("Control uses corrupted x_meas, Reflex detects mismatch, Shield stops.")
+        print()
 
-        # Comparison
+        env_glitch = ToyEnv(
+            enable_glitches=True,
+            glitch_start_tick=5,
+            glitch_end_tick=25,
+            glitch_magnitude=0.3
+        )
+        summary_glitch = run_episode(
+            env=env_glitch,
+            verbose=args.verbose,
+            control_gain=gain
+        )
+        print_summary("Sensor Glitch", summary_glitch, gain)
+
+    if args.scenario == "both":
         print(f"\n{'='*60}")
-        print("COMPARISON")
+        print("COMPARISON: Clean vs Sensor Glitch")
         print(f"{'='*60}")
-        delta_interventions = summary_aggressive['interventions'] - summary_conservative['interventions']
-        print(f"Shield interventions: {summary_conservative['interventions']} → {summary_aggressive['interventions']} (+{delta_interventions})")
-        print(f"\nThe aggressive controller triggers {delta_interventions} additional")
-        print(f"Shield interventions, demonstrating the Shield's role in")
-        print(f"maintaining safety despite different control policies.")
+        print(f"Clean interventions:  {summary_clean['interventions']}")
+        print(f"Glitch interventions: {summary_glitch['interventions']}")
+        delta = summary_glitch['interventions'] - summary_clean['interventions']
+        print(f"Difference: +{delta} interventions during sensor glitch")
+        print(f"\nThe sensor glitch scenario demonstrates HTI's ability to")
+        print(f"detect and respond to sensor contradictions (x_true vs x_meas).")
+        print(f"Shield automatically stops on mismatch, then recovers when glitch clears.")
         print(f"{'='*60}")
 
 

@@ -23,14 +23,21 @@ class SemanticsAdvice:
 class ReflexFlags:
     """Fast pre-check flags from Reflex band.
 
+    STATELESS: Flags are reset/recomputed every tick. Previous flags discarded.
+    RECOVERY: When mismatch clears, sensor_mismatch automatically becomes False.
+
     Attributes:
         near_boundary: True if state is near a safety boundary
         too_fast: True if proposed action is too aggressive
         distance_to_boundary: Distance to nearest boundary
+        sensor_mismatch: True if |x_true - x_meas| > threshold (v0.2)
+        mismatch_magnitude: Absolute difference |x_true - x_meas| (v0.2)
     """
     near_boundary: bool = False
     too_fast: bool = False
     distance_to_boundary: float = 0.0
+    sensor_mismatch: bool = False      # v0.2
+    mismatch_magnitude: float = 0.0    # v0.2
 
 
 @dataclass

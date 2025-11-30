@@ -25,6 +25,9 @@ class ControlBand:
     def step(self, state: SharedState) -> None:
         """Compute action proposal based on obs and semantic advice.
 
+        v0.2: Uses x_meas (measured state), NOT x_true.
+        Intentionally naive - demonstrates sensor contradiction scenarios.
+
         Reads: state.obs, state.semantics_advice
         Writes: state.action_proposed
         MUST NOT write: state.action_final
@@ -32,8 +35,10 @@ class ControlBand:
         Args:
             state: Shared state (modified in-place)
         """
-        # TODO v0.2: Use direct dict access state.obs["x"] to fail fast on malformed obs
-        x = state.obs.get("x", 0.0)
+        # v0.2: Use MEASURED state (potentially corrupted by glitches)
+        # Fallback to "x" for backward compatibility with v0.1.1
+        # TODO v0.2: Use direct dict access state.obs["x_meas"] to fail fast on malformed obs
+        x = state.obs.get("x_meas", state.obs.get("x", 0.0))
         x_target = state.obs.get("x_target", 0.0)
 
         error = x_target - x

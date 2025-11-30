@@ -33,9 +33,14 @@ class SafetyShield:
     def apply(self, state: SharedState) -> tuple[float, Optional[EventPack]]:
         """Apply safety bounds to proposed action.
 
+        v0.2 PRECEDENCE (Zen MCP #4):
+          1. Sensor mismatch → STOP (action_final = 0.0)
+          2. Out of bounds → CLIP
+          3. Near boundary → CONSERVATIVE CLIP
+
         Reads: state.action_proposed, state.obs, state.reflex_flags
         Produces:
-          - safe action_final (bounded)
+          - safe action_final (bounded or stopped)
           - optional EventPack if clipping / override occurred
         Writes: state.action_final
 
@@ -47,7 +52,31 @@ class SafetyShield:
         """
         proposed = state.action_proposed if state.action_proposed is not None else 0.0
 
-        # Determine if we need to be more conservative
+        # PRECEDENCE 1: Sensor mismatch (Zen MCP #1 - trust ReflexBand flag)
+        if state.reflex_flags.sensor_mismatch:
+            safe_action = 0.0
+            state.action_final = safe_action
+
+            # Zen MCP #5: Generate event even if proposed==0.0
+            event = EventPack(
+                timestamp=state.t,
+                tick=state.tick,
+                band="SafetyShield",
+                obs_before=state.obs.copy(),
+                action_proposed=proposed,
+                action_final=safe_action,
+                reason="stop_sensor_mismatch",  # v0.2
+                metadata={
+                    "near_boundary": state.reflex_flags.near_boundary,
+                    "too_fast": state.reflex_flags.too_fast,
+                    "distance_to_boundary": state.reflex_flags.distance_to_boundary,
+                    "sensor_mismatch": state.reflex_flags.sensor_mismatch,
+                    "mismatch_magnitude": state.reflex_flags.mismatch_magnitude
+                }
+            )
+            return safe_action, event
+
+        # PRECEDENCE 2: Boundary-aware clipping
         conservative_mode = state.reflex_flags.near_boundary
 
         # Set bounds (potentially stricter if near boundary)
@@ -81,7 +110,9 @@ class SafetyShield:
                 metadata={
                     "near_boundary": state.reflex_flags.near_boundary,
                     "too_fast": state.reflex_flags.too_fast,
-                    "distance_to_boundary": state.reflex_flags.distance_to_boundary
+                    "distance_to_boundary": state.reflex_flags.distance_to_boundary,
+                    "sensor_mismatch": state.reflex_flags.sensor_mismatch,
+                    "mismatch_magnitude": state.reflex_flags.mismatch_magnitude
                 }
             )
 
