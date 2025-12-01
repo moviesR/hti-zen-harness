@@ -11,6 +11,24 @@ Zen provides multi-model orchestration (`planner`, `consensus`, `codereview`, `t
 
 ---
 
+## ⚡ Recommended Approach: Use API Tools Directly
+
+**Prefer direct Zen MCP tools over clink**:
+- ✅ `chat`, `thinkdeep`, `consensus`, `codereview`, `precommit`, `debug`, `planner`
+- ✅ Work via API (no CLI setup needed)
+- ✅ Already configured and tested
+- ✅ Simple, reliable, fast
+
+**Avoid clink unless absolutely necessary**:
+- ❌ Requires separate CLI installations (gemini CLI, codex CLI, etc.)
+- ❌ Requires separate authentication for each CLI
+- ❌ Uses your API credits anyway (no cost benefit)
+- ❌ More complexity for minimal gain in this project
+
+**Bottom line**: Direct API tools (`mcp__zen__chat`, `mcp__zen__consensus`, etc.) do everything you need without the CLI overhead.
+
+---
+
 ## When Zen Tools Add Value
 
 ### Consider using Zen MCP tools when:
@@ -299,3 +317,239 @@ Ask yourself:
    - Think better → Use Zen appropriately
 
 The goal is **thoughtful tool use**, not **tool maximalism**.
+
+---
+
+## HTI-Specific Model Recommendations
+
+**Available Models** (as of 2025-11-30):
+- **Gemini**: `gemini-2.5-pro` (1M context, deep reasoning), `gemini-2.5-flash` (ultra-fast)
+- **OpenAI**: `gpt-5.1`, `gpt-5.1-codex`, `gpt-5-pro`, `o3`, `o3-mini`, `o4-mini`
+
+**Recommended by Task**:
+- **Planning**: `gpt-5.1-codex` (code-focused structured planning)
+- **Architecture**: `gemini-2.5-pro` (deep reasoning, 1M context)
+- **Debugging**: `o3` (strong logical analysis)
+- **Code Review**: `gpt-5.1` (comprehensive reasoning)
+- **Quick Questions**: `gemini-2.5-flash` (ultra-fast, 1M context)
+- **Consensus**: Mix 2-3 models (e.g., `gpt-5.1` + `gemini-2.5-pro` + `o3`)
+
+---
+
+## Practical Templates
+
+### Template 1: Planning New HTI Version
+
+**Use Case**: Starting v0.X implementation (5+ files, new subsystems)
+
+**Pattern**:
+```
+Use planner with gpt-5.1-codex to design [FEATURE]:
+
+Context:
+- Current state: [what exists now]
+- Goal: [what we're building]
+- Constraints: [HTI invariants, backward compatibility]
+
+Plan should include:
+1. Architecture changes needed
+2. File modifications (existing + new)
+3. Testing strategy
+4. Migration path (if breaking changes)
+```
+
+**Example**:
+```
+Use planner with gpt-5.1-codex to design v0.6 RL policy integration:
+
+Context:
+- Current: PD/PID controllers via ArmBrainPolicy protocol
+- Goal: Support stateful RL policies (PPO, SAC, DQN)
+- Constraints: Zero harness changes, brain-agnostic design
+
+Plan should include:
+1. BrainPolicy extension for stateful policies
+2. Episode buffer interface
+3. Checkpoint loading/saving
+4. Testing with dummy RL brain
+```
+
+---
+
+### Template 2: Design Decisions via Consensus
+
+**Use Case**: Multiple valid approaches, safety-critical choices
+
+**Pattern**:
+```
+Use consensus to decide: [QUESTION]
+
+Models:
+- gpt-5.1 with stance "for" [OPTION A]
+- gemini-2.5-pro with stance "against" [OPTION A, argue for OPTION B]
+- o3 with stance "neutral" (objective analysis)
+
+Context:
+[Relevant technical details]
+
+Criteria:
+- [Criterion 1]
+- [Criterion 2]
+```
+
+**Example**:
+```
+Use consensus to decide: RL framework for HTI v0.6
+
+Models:
+- gpt-5.1 with stance "for" Stable-Baselines3
+- gemini-2.5-pro with stance "against" SB3, argue for CleanRL
+- o3 with stance "neutral"
+
+Context:
+- Need PPO, SAC, DQN implementations
+- Must integrate with HTI ArmBrainPolicy protocol
+- Want good documentation and active maintenance
+
+Criteria:
+- Ease of integration with HTI
+- Code quality and maintainability
+- Performance and stability
+```
+
+---
+
+### Template 3: Deep Investigation
+
+**Use Case**: Complex questions about control theory, physics, tuning
+
+**Pattern**:
+```
+Use thinkdeep with [MODEL] to investigate: [QUESTION]
+
+Known evidence:
+- [Observation 1]
+- [Observation 2]
+
+Initial hypothesis:
+[What you think might be happening]
+
+Files to examine:
+[Absolute paths]
+```
+
+**Example**:
+```
+Use thinkdeep with o3 to investigate: Why does PD with Kd=2.0 converge faster than Kd=3.0?
+
+Known evidence:
+- Kd=2.0: avg 455 ticks to converge
+- Kd=3.0: avg 520 ticks to converge
+- Both use same Kp=8.0
+
+Initial hypothesis:
+Over-damping (Kd too high) slows response
+
+Files to examine:
+/home/john2/claude-projects/hti-zen-harness/hti_arm_demo/brains/arm_pd_controller.py
+/home/john2/claude-projects/hti-zen-harness/hti_arm_demo/env.py
+```
+
+---
+
+### Template 4: Code Review Before Release
+
+**Use Case**: Before committing v0.X release (10+ files changed)
+
+**Pattern**:
+```
+Use codereview with gpt-5.1 to review [SCOPE]:
+
+Review type: full
+Focus areas:
+- Code quality and maintainability
+- Security (HTI safety invariants)
+- Performance (timing band compliance)
+- Architecture (brain-agnostic design preserved)
+
+Files to review:
+[List of absolute file paths]
+```
+
+**Example**:
+```
+Use codereview with gpt-5.1 to review HTI v0.5 implementation:
+
+Review type: full
+Focus areas:
+- Brain-agnostic design preserved
+- EventPack metadata extension correct
+- No timing band violations
+- Fallback logic compliance (hti-fallback-guard)
+
+Files to review:
+/home/john2/claude-projects/hti-zen-harness/hti_arm_demo/brains/arm_imperfect.py
+/home/john2/claude-projects/hti-zen-harness/hti_arm_demo/run_v05_demo.py
+/home/john2/claude-projects/hti-zen-harness/hti_arm_demo/shared_state.py
+/home/john2/claude-projects/hti-zen-harness/hti_arm_demo/bands/control.py
+```
+
+---
+
+### Template 5: Context-Isolated Subagents (clink)
+
+**Use Case**: Large codebase exploration, heavy reviews, save tokens
+
+**Pattern**:
+```
+Use clink with [CLI] [ROLE] to [TASK]
+
+Available CLIs: gemini, codex, claude
+Available Roles: default, planner, codereviewer
+```
+
+**Examples**:
+```
+# Code review in isolated context (saves our tokens)
+Use clink with gemini codereviewer to review hti_arm_demo/ for safety issues
+
+# Large codebase exploration
+Use clink with gemini to map all brain implementations and document their interfaces
+
+# Strategic planning
+Use clink with gemini planner to design phase-by-phase migration to MuJoCo physics
+```
+
+**Why use clink**:
+- Gemini CLI launches fresh 1M context window
+- Heavy analysis doesn't pollute our context
+- Returns only final summary/report
+- Can use web search for latest docs
+
+---
+
+### Template 6: Pre-Commit Validation
+
+**Use Case**: Before `git commit` on major changes
+
+**Pattern**:
+```
+Use precommit with gpt-5.1 to validate changes in [PATH]:
+
+Focus:
+- Security issues
+- Breaking changes
+- Missing tests
+- Documentation completeness
+```
+
+**Example**:
+```
+Use precommit with gpt-5.1 to validate changes in /home/john2/claude-projects/hti-zen-harness:
+
+Focus:
+- HTI safety invariants preserved
+- No regressions in existing tests
+- New tests for v0.6 features
+- CHANGELOG and SPEC updated
+```
