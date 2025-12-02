@@ -13,6 +13,7 @@ from .arm_p_controller import ArmPControllerBrain
 from .arm_aggressive_controller import ArmAggressiveControllerBrain
 from .arm_pd_controller import ArmPDControllerBrain, ArmAggressivePDControllerBrain
 from .arm_imperfect import ArmImperfectBrain
+from .arm_optimal_pd import ArmOptimalPDBrain
 
 
 BRAIN_REGISTRY: Dict[str, Type[ArmBrainPolicy]] = {
@@ -21,6 +22,7 @@ BRAIN_REGISTRY: Dict[str, Type[ArmBrainPolicy]] = {
     "pd": ArmPDControllerBrain,
     "pd_aggressive": ArmAggressivePDControllerBrain,
     "imperfect": ArmImperfectBrain,  # v0.5: mis-tuned PD for stress testing
+    "optimal": ArmOptimalPDBrain,    # Phase 1: critically damped PD (ζ=1.0)
 }
 
 
@@ -29,11 +31,12 @@ def create_arm_brain(brain_name: str, config: Dict[str, Any] | None = None) -> A
     Factory function for creating arm brains.
 
     Args:
-        brain_name: Name from BRAIN_REGISTRY ("p", "aggressive", "pd", "pd_aggressive", "imperfect")
+        brain_name: Name from BRAIN_REGISTRY ("p", "aggressive", "pd", "pd_aggressive", "imperfect", "optimal")
         config: Optional dict of constructor arguments
             - For P brains: {"gain": 7.0}
             - For PD brains: {"Kp": 10.0, "Kd": 2.5}
             - For imperfect brain: {"Kp": 14.0, "Kd": 0.5} (defaults)
+            - For optimal brain: {"Kp": 8.0, "Kd": 5.56} (defaults)
 
     Returns:
         Instantiated brain

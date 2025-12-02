@@ -5,6 +5,7 @@ from .arm_p_controller import ArmPControllerBrain
 from .arm_aggressive_controller import ArmAggressiveControllerBrain
 from .arm_pd_controller import ArmPDControllerBrain, ArmAggressivePDControllerBrain
 from .arm_imperfect import ArmImperfectBrain
+from .arm_optimal_pd import ArmOptimalPDBrain
 from .registry import create_arm_brain, list_arm_brains, BRAIN_REGISTRY
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "ArmPDControllerBrain",
     "ArmAggressivePDControllerBrain",
     "ArmImperfectBrain",
+    "ArmOptimalPDBrain",
     "create_arm_brain",
     "list_arm_brains",
     "BRAIN_REGISTRY",

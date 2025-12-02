@@ -1,10 +1,10 @@
 # HTI Deep Analysis Report
 
-**Date**: 2025-11-30
-**Investigation Period**: Multi-model analysis via Zen MCP
+**Date**: 2025-11-30 (Updated: 2025-12-01 with Phase 1 empirical validation)
+**Investigation Period**: Multi-model analysis via Zen MCP + empirical validation
 **Models Used**: Gemini-2.5-Pro, O3, GPT-5.1
-**Scope**: v0.5 analysis + v0.6 design validation
-**Status**: ✅ **COMPLETE** - 4 investigations, 14 analysis steps, 13 files examined
+**Scope**: v0.5 analysis + v0.6 design validation + Phase 1 empirical testing
+**Status**: ✅ **COMPLETE** - 4 investigations + Phase 1 validation, 14 analysis steps, 13 files examined
 
 ---
 
@@ -16,7 +16,7 @@ This report presents findings from systematic deep analysis of the HTI (Hierarch
 
 1. **HTI v0.6 RL Integration**: Architecture is **production-ready** for Stable-Baselines3 policies with zero harness modifications required.
 
-2. **Control Theory**: Current PD controllers are deliberately under-damped (ζ=0.37-0.48); optimization to critical damping (ζ=1.0) could yield 2-3x speedup.
+2. **Control Theory**: Current PD controllers are deliberately under-damped (ζ=0.37-0.48); **Phase 1 empirical validation** found optimal at ζ≈0.636 (1.51x speedup), not ζ=1.0 as predicted.
 
 3. **Architecture**: HTI's time-banded design is **fundamentally sound** with 97% computational headroom; simplicity is a strategic advantage, not a limitation.
 
@@ -37,9 +37,10 @@ This report presents findings from systematic deep analysis of the HTI (Hierarch
 2. [Investigation 2: Control Theory & Damping Dynamics](#investigation-2-control-theory--damping-dynamics)
 3. [Investigation 3: Architecture Analysis](#investigation-3-architecture-analysis)
 4. [Investigation 4: Performance Deep Dive](#investigation-4-performance-deep-dive)
-5. [Cross-Cutting Insights](#cross-cutting-insights)
-6. [Recommendations](#recommendations)
-7. [Appendices](#appendices)
+5. [Phase 1: Empirical Validation](#phase-1-empirical-validation-post-analysis)
+6. [Cross-Cutting Insights](#cross-cutting-insights)
+7. [Recommendations](#recommendations)
+8. [Appendices](#appendices)
 
 ---
 
@@ -789,6 +790,126 @@ For each Kd:
 
 ---
 
+
+## Phase 1: Empirical Validation (Post-Analysis)
+
+**Date**: 2025-12-01
+**Goal**: Validate Investigation 2 control theory predictions empirically
+**Method**: Grid search over Kd values with Kp=8.0 fixed
+**Status**: ✅ **COMPLETE** - Methodology validated, formula refined
+
+### Executive Summary
+
+Phase 1 empirically tested the control theory predictions from Investigation 2. **Key finding**: The predicted optimal damping ratio (ζ=1.0) was **incorrect** for this task; empirical testing found the optimum at ζ≈0.636.
+
+This validates the investigation **methodology** (systematic hypothesis testing) while refining the **specific prediction** (optimal damping ratio).
+
+### Original Prediction (Investigation 2)
+
+**Hypothesis**: Critical damping (ζ=1.0) would yield 2-3x speedup over nominal PD
+- Formula: Kd_optimal = 2√Kp - b_plant
+- For Kp=8.0: Kd_optimal ≈ 5.56 (ζ=1.0)
+- Predicted: ~150-220 ticks (vs 455 ticks baseline)
+
+### Empirical Results
+
+**Grid Search Setup**:
+- Tested Kd ∈ [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.56, 6.0, 7.0]
+- Fixed Kp=8.0, measured convergence time over 5 runs
+- Environment: ToyArmEnv (2-DOF arm, waypoint task)
+
+**Results Table**:
+
+| Kd | ζ | Avg Ticks | vs Nominal | Status |
+|----|-------|-----------|------------|---------|
+| 0.50 | 0.106 | 1000.0 | 2.20x slower | timeout |
+| 1.00 | 0.194 | 909.0 | 2.00x slower | slow |
+| 1.50 | 0.283 | 548.0 | 1.20x slower | slow |
+| **2.00** | **0.371** | **455.0** | **baseline** | **nominal** |
+| 2.50 | 0.460 | 474.0 | 1.04x slower | - |
+| 3.00 | 0.548 | 378.0 | 1.20x faster | better |
+| **3.50** | **0.636** | **302.0** | **1.51x faster** | **✓ BEST** |
+| 4.00 | 0.725 | 330.0 | 1.38x faster | good |
+| 4.50 | 0.813 | 367.0 | 1.24x faster | good |
+| 5.00 | 0.902 | 422.0 | 1.08x faster | marginal |
+| 5.56 | 1.001 | 486.0 | 0.94x slower | ✗ predicted |
+| 6.00 | 1.078 | 541.0 | 0.84x slower | over-damped |
+| 7.00 | 1.255 | 661.0 | 0.69x slower | over-damped |
+
+**Empirical Optimum**: Kd=3.5 (ζ≈0.636) → 302 ticks → **1.51x speedup**
+
+### Analysis: Why ζ=0.636 Beats ζ=1.0
+
+**Under-damping advantage (ζ≈0.636)**:
+- Faster rise time (quicker acceleration to target)
+- Acceptable overshoot (Shield clips excess torques)
+- Earlier convergence start
+
+**Critical damping disadvantage (ζ=1.0)**:
+- Slower rise time (conservative approach to target)
+- Zero overshoot (unnecessary constraint given Shield protection)
+- Delayed convergence start
+
+**Key Insight**: HTI's safety Shield **changes the optimization landscape**
+- Without Shield: ζ=1.0 optimal (no overshoot tolerance)
+- With Shield: ζ≈0.636 optimal (overshoot is clipped, speed matters more)
+
+This demonstrates a **systems-level effect** not captured in isolated control theory analysis.
+
+### Implementation
+
+**Created**:
+- `hti_arm_demo/brains/arm_optimal_pd.py` - Empirically-optimized brain
+  - Kp=8.0, Kd=3.5 (ζ≈0.636)
+  - Documented grid search findings
+- `hti_arm_demo/tests/test_optimal_damping.py` - 3 validation tests
+  - test_optimal_brain_faster_than_nominal() - Speedup validated
+  - test_optimal_brain_succeeds() - Task completion verified
+  - test_optimal_parameters() - Parameters correct
+
+**Registry**: Added as `"optimal"` brain type
+
+### Revised Recommendations
+
+**For HTI v0.6 and beyond**:
+
+1. **Damping formula refinement**:
+   ```
+   OLD (Investigation 2): Kd_opt = 2√Kp - 0.1  (ζ=1.0)
+   NEW (Phase 1):         Kd_opt = 1.23√Kp - 0.1  (ζ≈0.636)
+   ```
+
+2. **Context-dependent optimization**:
+   - **With Shield**: Favor under-damping (ζ≈0.6-0.7) for speed
+   - **Without Shield**: Favor critical damping (ζ=1.0) for safety
+   - **Learned policies**: Let RL discover task-specific optimal ζ
+
+3. **Grid search validation**:
+   - Always empirically validate control theory predictions
+   - System-level effects (Shield, task structure) matter
+   - "Optimal" depends on optimization objective
+
+### Validation Status
+
+| Aspect | Status | Notes |
+|--------|--------|-------|
+| Methodology | ✓ Validated | Systematic hypothesis testing works |
+| Specific formula | ✗ Refined | ζ=0.636 beats ζ=1.0 for this task |
+| Speedup achieved | ✓ Partial | 1.51x vs predicted 2-3x (still significant) |
+| Implementation | ✓ Complete | Optimal brain + tests passing |
+| Confidence | HIGH | Results reproducible (deterministic env) |
+
+### Impact on Phase 3 (v0.6 RL)
+
+**Implications**:
+1. **RL policies expected to discover ζ≈0.636** empirically during training
+2. **No need to hand-tune damping** - let reward function guide discovery
+3. **Shield-aware optimization** is a design strength, not a confound
+4. **Validation methodology** (hypothesis → experiment → refine) proven effective
+
+**Recommendation**: Proceed to Phase 3 with confidence that empirical testing will refine theoretical predictions as needed.
+
+---
 ## Cross-Cutting Insights
 
 ### Insight 1: brain_state Was Visionary
